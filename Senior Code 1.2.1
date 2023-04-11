@@ -1,0 +1,162 @@
+#include <RH_ASK.h>
+#include <SPI.h> // Not actualy used but needed to compile
+
+#include <LiquidCrystal.h>
+
+
+RH_ASK driver;
+LiquidCrystal lcd(12, 10, 5, 4, 3, 2);
+
+int tal = 0;
+
+int pirState = LOW;  //  first motion sensor state ( either high or low)
+int pirState2= LOW;  //   second motion sensor (either high or low)
+int pirState3 =LOW;  //   third motion sensor (either high or low)
+int pirState4 =LOW;  //   fourth motion sensor (either high or low)
+
+int val = 0;  // input value for pirState ( status), data comes from digitalread(), directly from the motion sensor 
+int val2=0;   // input value for pirState2 (status)
+int val3=0;   // input value for pirState3 (status)
+int val4=0;   // input value for pirState4 (status)
+
+int inputPin = 2;   // First motion sensor goes into pin 2 of the arduino
+int inputPin2 = 4;   // second motion sensor goes into pin 4 of the arduino
+int inputPin3= 7;    // third motion sensor goes into pin 7 of the arduino
+int inputPin4= 9;    //fourth motion senosr goes into pin 9 of the arduino
+
+double time = 0;
+int checkpoint1 = 0;
+int checkpoint2 = 0;
+int STOP = 0;
+bool sensor1_activated = false;
+bool sensor2_activated = false;
+
+int relay = 10;
+
+
+#define PRESSURE_PIN A0    // sets the first pressure pad into A0 (analog)
+int PREval = 0;    // input value for pressure sensor (status)
+
+
+
+
+
+
+
+
+void setup() {
+   pinMode(inputPin, INPUT);   // sets up pin 2 as input, digitalread() can now be used
+        pinMode(inputPin2 ,INPUT);  // sets up pin 4 as input
+        pinMode(inputPin3, INPUT);  // sets up pin 7 as input
+        pinMode(inputPin4, INPUT);  // sets up pin 9 as input
+        pinMode (11 , OUTPUT );     // sets up pin 11 as output, needed to transmit data
+        pinMode (relay, OUTPUT);
+        
+        
+        Serial.begin(9600);   // sets up clock rate
+
+ 
+         if (!driver.init())
+               Serial.println("init failed"); // check if system is good to go 
+               
+}
+
+void loop() {
+  
+digitalWrite(relay , HIGH);
+
+ if (digitalRead(inputPin) == HIGH && !sensor1_activated) {
+    sensor1_activated = true;
+    checkpoint1 = 2;
+    STOP = 4;
+    checkpoint2 = 9;
+    
+    Serial.println("Sensor 1 activated! Checkpoint 1 set.");
+  }
+  else if (digitalRead(inputPin4) == HIGH && !sensor2_activated) {
+    sensor2_activated = true;
+    checkpoint1 = 9;
+    STOP = 7;
+    checkpoint2 = 2;
+    Serial.println("Sensor 2 activated! Checkpoint 1 set.");
+    
+  }
+
+
+
+val= digitalRead(checkpoint1); // gather data for checkpoint one, determines if the train is within the vicinity 
+
+
+switch(val){
+  case HIGH: // check point 1, begins when train enters the data
+
+    val4 = digitalRead(checkpoint2); // gather data for final check point to determine if train is still within the vicinity
+
+    while(val4 == LOW) { // keeps running while train does not pass final check point, train is still within the vicinity
+
+      val2 = digitalRead(STOP); // gather data for the stop check point
+
+      switch(val2){
+        case LOW: // motion sensor 1
+         
+            tal = digitalRead(inputPin);
+            const char *msg = "Safe 1";
+            driver.send((uint8_t *)msg, strlen(msg));
+            driver.waitPacketSent();
+            delay(1000);
+
+            Serial.println("Motion detected on 1 "); 
+            pirState = HIGH;
+          
+
+            case HIGH: // Motion is detected signal is needed
+
+           
+            PREval = analogRead(PRESSURE_PIN);
+            switch(PREval > 30) {
+              case true: // determines if the object is within the intersection
+                // check how long the pressure pad has been active
+                time = millis();
+
+                switch(time > 1000) {
+                  case true: // if the pressure pad is active longer than 10 sec
+                    // only active if object is stuck within the intersection longer than 10 sec
+                    const char *msg = "Stop"; // Stop message is transmitted to the conductor 
+                    driver.send((uint8_t *)msg, strlen(msg));
+                    driver.waitPacketSent();
+                    digitalWrite(relay , LOW);
+                    
+                    delay(180000);
+
+                    
+
+                    Serial.println("Motion no longer detected on 1");
+                    pirState = LOW;
+                    
+                    Serial.println(PRESSURE_PIN);
+                    break;
+                   
+                break;
+                break;
+            }
+          }
+          break;
+      }
+    }
+    break;
+
+  case LOW:
+    val4 = digitalRead(checkpoint2); // gather data for final check point to determine if train is still within the vicinity
+
+    switch(val4){
+      case HIGH: // check point 2 is activated meaning that the train has left the vicinity and no longer in threat
+        const char *msg = "Clear"; // sends message to the conductor that everything is clear
+        driver.send((uint8_t *)msg, strlen(msg));
+        driver.waitPacketSent();
+        delay(1000);
+        break;
+    }
+    break;
+    
+}
+}
